@@ -1,0 +1,327 @@
+{
+  "name": "chat-bot",
+  "nodes": [
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        192,
+        192
+      ],
+      "id": "20710b30-a446-4eb5-82a6-e943000e614a",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "greNKa0hsOJZYraa",
+          "name": "voiceassistant"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.message }} ",
+        "options": {
+          "systemMessage": "=You are a helpful assistant for a coaching business.You must answer users' questions about our company .\nROLE 1: there are some FAQ and info about our company in about us doc و Extract information from it and then answer users' questions.\n\nROLE 2: don't help people about general questions and programming stuff, You are a helpful and professional assistant for a coaching business. \n\n\nROLE 3: if you could not help the user, take their email/Phone number/name/ and import these to my Lead sheet, extract name email and number in Json like\n{\nname: name\nemail: email\nnumber:number\n}\nYou can also suggest to the user that if they want to communicate faster, they can call +13024009229\n\n\n\n\n------------------------------------------------------------\nEND THE MASSAGE ROLE \nWhenever you determine that the conversation is over, or that a long time has passed since the user's message, or that the user has ended the conversation with closing words such as \"Goodbye\" or \"I have no questions,\" .\nget the entire chat from memory and create a few lines of summary , import this to my Lead sheet , Use the lead sheet tool for this. extract summary in Json like\n{\nsummary: summary\n}\nclose chat and say thank you for time\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        256,
+        0
+      ],
+      "id": "1cbdf5f3-b4d6-40a8-a88b-84b4aa6742c3",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "about us doc\nConsume Google Docs API for about us and who we are.\nthere are some FAQ as well.\nsuch as the sending time, product return availability, and so on.",
+        "operation": "get",
+        "documentURL": "1g2znmBc_Fv5miErhK_yDoH7vmwe4nQR3TkCLBBqYRMc"
+      },
+      "type": "n8n-nodes-base.googleDocsTool",
+      "typeVersion": 2,
+      "position": [
+        512,
+        192
+      ],
+      "id": "32d27146-4c1b-4742-90ee-9bfed630d00c",
+      "name": "about us",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "9VAyGLaYSysfHLC1",
+          "name": "Google Docs vapi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "d691acd3-dddf-4307-809e-5c6fbd226746",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        32
+      ],
+      "id": "fc80765d-1e86-433a-bcbe-ad3c62cc8267",
+      "name": "Webhook",
+      "webhookId": "d691acd3-dddf-4307-809e-5c6fbd226746"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        608,
+        0
+      ],
+      "id": "ee4fad0e-3307-4e15-8ad8-ad4921239a14",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.body.sessionId }}",
+        "contextWindowLength": 30
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryRedisChat",
+      "typeVersion": 1.5,
+      "position": [
+        384,
+        208
+      ],
+      "id": "a046cb05-f98c-4dc7-b74a-9530c9448903",
+      "name": "Redis Chat Memory",
+      "credentials": {
+        "redis": {
+          "id": "KQbVIwcLw7tiKawV",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "add summary of the chat with this tool\nadd users contact info with this tool ",
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "app5Z69fExlDvYZNy",
+          "mode": "list",
+          "cachedResultName": "lead-chat",
+          "cachedResultUrl": "https://airtable.com/app5Z69fExlDvYZNy"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblN81XU86i8v1Fxn",
+          "mode": "list",
+          "cachedResultName": "customer",
+          "cachedResultUrl": "https://airtable.com/app5Z69fExlDvYZNy/tblN81XU86i8v1Fxn"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('name', `Enter the name the user sent you in the chat here.`, 'string') }}",
+            "email": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('email', `Enter the email the user sent you in the chat here.`, 'string') }}",
+            "number": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('number', `Enter the number the user sent you in the chat here.`, 'string') }}",
+            "summury": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('summury', `Enter the summary of the chat .`, 'string') }}",
+            "sessionId": "={{ $('Webhook').item.json.body.sessionId }}"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "number",
+              "displayName": "number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "summury",
+              "displayName": "summury",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sessionId",
+              "displayName": "sessionId",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtableTool",
+      "typeVersion": 2.1,
+      "position": [
+        688,
+        192
+      ],
+      "id": "b7e74e6c-7ee0-4a98-acff-e729c51811fa",
+      "name": "lead sheet",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "X8dBtIxrkknZ0J08",
+          "name": "Airtable vapi token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "### {{ $json.body.message }} \n\n#### You must politely decline any technical or behind-the-scenes questions about the technology, platform, programming, hosting, or tools you use. \nIf a user asks something technical, respond with:\n\"I'm here to assist with questions about our services, offers, and how we can help you. For technical details, we keep those internal — but I’d be happy to help with anything related to your goals.\"\nSample questions a user might ask you : \n\nWhat platform are you using? Our focus is on delivering a seamless experience for you. We keep the technical details behind the scenes so you can focus on results.\nIs this GPT or some AI?  Yes, there's AI involved behind the scenes, but I’m here to help you understand how we can support your business. Let’s focus on that.\nWhat system powers you? I'm designed to represent the team’s knowledge and services. The specific tools behind me are internal — how can I help you today?\n\n\n\n{{ $('Webhook').item.json.body.sessionId }}"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        208
+      ],
+      "id": "705c2387-ca7b-4f9a-8897-0a5d4253c223",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "about us": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "lead sheet": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "TN12aMf1d7rSN2nu"
+  },
+  "versionId": "95e08b0d-e589-4a30-9898-8de3f6d47c08",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8f20c1105cea384f9a027f7fbe35cbda1d1be3d35bbb8375794cc640ee7083ac"
+  },
+  "id": "j0lYfbdXnViTXjKx",
+  "tags": []
+}
