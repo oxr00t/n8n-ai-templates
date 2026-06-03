@@ -1,0 +1,1407 @@
+{
+  "name": "lead magnet",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Validate incoming data\nconst items = $input.all();\nconst validatedItems = [];\n\nfor (const item of items) {\n  const data = item.json.body\n  \n  // Validate required fields\n  if (!data.leadName || !data.businessName || !data.websiteUrl || !data.email || !data.phoneNumber) {\n    throw new Error('Missing required fields');\n  }\n  \n  // Validate email format\n  const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n  if (!emailRegex.test(data.email)) {\n    throw new Error('Invalid email format');\n  }\n  \n  // Format website URL\n  let websiteUrl = data.websiteUrl;\n  if (!websiteUrl.startsWith('http://') && !websiteUrl.startsWith('https://')) {\n    websiteUrl = 'https://' + websiteUrl;\n  }\n  \n  // Validate URL format\n  \n  \n  validatedItems.push({\n    json: {\n      ...data,\n      websiteUrl,\n      processedAt: new Date().toISOString(),\n      workflowId: $execution.id\n    }\n  });\n}\n\nreturn validatedItems;"
+      },
+      "id": "f8bc84c6-e8c2-4563-8e88-8a148b4cf934",
+      "name": "Validate & Format Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.websiteUrl }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "2458ed58-2e24-41c3-bf92-847b5129e468",
+      "name": "Scrape Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1120,
+        608
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst processedItems = [];\n\nfor (const item of items) {\n  const websiteData = item.json;\n  const originalData = $node[\"Validate & Format Data\"].json;\n  \n  let scrapingSuccessful = false;\n  let extractedContent = {};\n  \n  if (websiteData.error) {\n    // Scraping failed\n    scrapingSuccessful = false;\n  } else {\n    // Extract content from HTML\n    const html = websiteData.data || '';\n    \n    // Simple extraction patterns\n    const titleMatch = html.match(/<title>([^<]+)<\\/title>/i);\n    const metaDescMatch = html.match(/<meta\\s+name=[\"']description[\"']\\s+content=[\"']([^\"']+)[\"']/i);\n    \n    // Extract text content (remove scripts and styles)\n    let textContent = html\n      .replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '')\n      .replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, '')\n      .replace(/<[^>]+>/g, ' ')\n      .replace(/\\s+/g, ' ')\n      .trim();\n    \n    // Look for common patterns\n    const aboutMatches = textContent.match(/about\\s+us[\\s\\S]{0,500}/i);\n    const servicesMatches = textContent.match(/services?[\\s\\S]{0,500}/i);\n    const faqMatches = textContent.match(/faq|frequently\\s+asked[\\s\\S]{0,1000}/i);\n    \n    extractedContent = {\n      title: titleMatch ? titleMatch[1] : originalData.businessName,\n      description: metaDescMatch ? metaDescMatch[1] : '',\n      aboutText: aboutMatches ? aboutMatches[0].substring(0, 300) : '',\n      servicesText: servicesMatches ? servicesMatches[0].substring(0, 300) : '',\n      faqText: faqMatches ? faqMatches[0].substring(0, 500) : '',\n      rawTextSample: textContent.substring(0, 1000)\n    };\n    \n    scrapingSuccessful = Object.values(extractedContent).some(v => v && v.length > 50);\n  }\n  \n  processedItems.push({\n    json: {\n      ...originalData,\n      scrapingSuccessful,\n      extractedContent,\n      kbCreationStatus: scrapingSuccessful ? 'pending_website_data' : 'pending_generic_data'\n    }\n  });\n}\n\nreturn processedItems;"
+      },
+      "id": "e32f0be2-e0f9-4739-805e-8d002badb0a6",
+      "name": "Extract Website Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.scrapingSuccessful }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "a21edd6d-ba48-4f13-b7bc-9b2ba674418d",
+      "name": "Check Scraping Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create KB from scraped data\nconst items = $input.all();\nconst kbItems = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const content = data.extractedContent;\n  \n  let knowledgeBase = `# ${data.businessName} AI Assistant Knowledge Base\\n\\n`;\n  knowledgeBase += `## Business Information\\n`;\n  knowledgeBase += `- Business Name: ${data.businessName}\\n`;\n  knowledgeBase += `- Contact Person: ${data.leadName}\\n`;\n  knowledgeBase += `- Website: ${data.websiteUrl}\\n\\n`;\n  \n  if (content.title) {\n    knowledgeBase += `## About ${content.title}\\n`;\n  }\n  \n  if (content.description) {\n    knowledgeBase += `${content.description}\\n\\n`;\n  }\n  \n  if (content.aboutText) {\n    knowledgeBase += `## About Us\\n${content.aboutText}\\n\\n`;\n  }\n  \n  if (content.servicesText) {\n    knowledgeBase += `## Services\\n${content.servicesText}\\n\\n`;\n  }\n  \n  if (content.faqText) {\n    knowledgeBase += `## Frequently Asked Questions\\n${content.faqText}\\n\\n`;\n  }\n  \n  // Add AI assistant context\n  knowledgeBase += `## AI Assistant Instructions\\n`;\n  knowledgeBase += `You are an AI assistant for ${data.businessName}. `;\n  knowledgeBase += `You're speaking with ${data.leadName} to demonstrate how AI can help their business. `;\n  knowledgeBase += `Be helpful, professional, and showcase your knowledge about their business based on the information above. `;\n  knowledgeBase += `If asked about something not in your knowledge base, politely explain that you're a demo assistant `;\n  knowledgeBase += `and suggest they could have a fully customized AI with complete business knowledge.\\n`;\n  \n  kbItems.push({\n    json: {\n      ...data,\n      knowledgeBase,\n      kbCreationStatus: 'success_website_data'\n    }\n  });\n}\n\nreturn kbItems;"
+      },
+      "id": "ba7c7a4a-ec78-49ac-ae7c-83532a152b9a",
+      "name": "Create KB from Website",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create generic KB\nconst items = $input.all();\nconst kbItems = [];\n\nfor (const item of items) {\n  const data = item.json;\n  \n  let knowledgeBase = `# ${data.businessName} AI Assistant Knowledge Base\\n\\n`;\n  knowledgeBase += `## Business Information\\n`;\n  knowledgeBase += `- Business Name: ${data.businessName}\\n`;\n  knowledgeBase += `- Contact Person: ${data.leadName}\\n`;\n  knowledgeBase += `- Website: ${data.websiteUrl}\\n\\n`;\n  \n  knowledgeBase += `## About This Demo\\n`;\n  knowledgeBase += `Welcome ${data.leadName}! I am an AI assistant created specifically for ${data.businessName}. `;\n  knowledgeBase += `While I don't have complete information about your business yet, I'm here to demonstrate `;\n  knowledgeBase += `how a fully customized AI assistant could help your business.\\n\\n`;\n  \n  knowledgeBase += `## How AI Can Help Your Business\\n`;\n  knowledgeBase += `- Answer customer questions 24/7\\n`;\n  knowledgeBase += `- Qualify leads and schedule appointments\\n`;\n  knowledgeBase += `- Provide instant support and information\\n`;\n  knowledgeBase += `- Handle routine inquiries to free up your time\\n`;\n  knowledgeBase += `- Integrate with your existing tools and systems\\n\\n`;\n  \n  knowledgeBase += `## AI Assistant Instructions\\n`;\n  knowledgeBase += `You are a demo AI assistant for ${data.businessName}. `;\n  knowledgeBase += `You're speaking with ${data.leadName} to showcase AI capabilities. `;\n  knowledgeBase += `Be enthusiastic about the potential of AI for their business. `;\n  knowledgeBase += `If asked specific questions about their business, explain that with full access `;\n  knowledgeBase += `to their business information, you could provide detailed, accurate answers. `;\n  knowledgeBase += `Encourage them to imagine how this could transform their customer experience.\\n`;\n  \n  kbItems.push({\n    json: {\n      ...data,\n      knowledgeBase,\n      kbCreationStatus: 'success_generic_data'\n    }\n  });\n}\n\nreturn kbItems;"
+      },
+      "id": "bc6aa1ba-3f76-49ba-b93c-6096519a4106",
+      "name": "Create Generic KB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        672
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "6777590a-a174-4f82-ba94-70a2a8cc018b",
+      "name": "Merge KB Branches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        624
+      ],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vapi.ai/assistant",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $('Merge KB Branches').item.json.businessName }}_demo_agent\",\n  \"voice\": {\n    \"provider\": \"openai\",\n    \"voiceId\": \"alloy\"\n  },\n  \"model\": {\n    \"provider\": \"openai\",\n    \"model\": \"gpt-4.1-nano\",\n    \"messages\": [\n      {\n        \"role\": \"system\",\n        \"content\": \"You are a voice assistant for my website and can answer any question asked from my website,The general information you need to know is as follows, Please follow the instructions below and carefully request the following information to ensure you are familiar with their answers.\\n\\n Assistant guide :{{$json.message.content['Assistant Behavior Guide'] }}\\n\\n Important information :\\n\\n Website Overview :{{$json.message.content['Website Overview'] }}\\n\\n Important Notes or Instructions : {{ $json.message.content['Important Notes or Instructions'] }}\\n\\n Notable Links :{{ $json.message.content['Notable Links'] }} \\n\\n Frequently asked questions : {{ $json.message.content['Anticipated User Questions'] }}\"\n      }\n    ]\n  },\n  \"firstMessage\": \"Hello {{ $('Merge KB Branches').item.json.leadName }} This is your personalized AI assistant for aliyar. I'm excited to show you what I can do for your business!\"\n\n}\n",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "505509e5-13b4-4ce5-be61-ffbec7ae65bf",
+      "name": "Create Vapi Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        2672,
+        624
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "uQHr1O21nzhDLRIF",
+          "name": "vapi api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vapi.ai/call",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"assistantId\": \"{{ $('Search records').item.json['Assistants id'] }}\",\n  \"customer\": {\n    \"number\": \"{{ $json[\"Phone number\"] }}\"\n  },\n  \"phoneNumberId\": \"23b99cc4-c65e-48d6-836f-c3e01db9775b\"\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "688b1821-4bcb-41e5-985b-9b609541e0b3",
+      "name": "Initiate Vapi Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1584,
+        912
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "uQHr1O21nzhDLRIF",
+          "name": "vapi api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1584,
+        1040
+      ],
+      "id": "e193495e-85aa-4aab-9378-9a916f644306",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "36395a1b-f41c-45a0-a82e-699c94b821ab",
+              "leftValue": "={{ $json.Status }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        992
+      ],
+      "id": "96eb0f9f-c0fc-4418-b8b3-82a6dfdf7112",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "36395a1b-f41c-45a0-a82e-699c94b821ab",
+              "leftValue": "={{ $json.Status }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1312,
+        1408
+      ],
+      "id": "e7e41ae0-68ea-4866-af65-4c9c8ef0ecb7",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1600,
+        1504
+      ],
+      "id": "bd4089c5-f655-44f5-ac49-9a52b649bca7",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "content": "## crate agent",
+        "height": 80,
+        "width": 210
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        384,
+        608
+      ],
+      "id": "6b37d508-c569-4479-a504-1676784a4662",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Calling the customer via their own voice assistant",
+        "height": 120,
+        "width": 290
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        384,
+        944
+      ],
+      "id": "b8b446ec-cf1b-4fab-839d-c61ca2663899",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Follow up with customers by email",
+        "height": 120,
+        "width": 290
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        368,
+        1408
+      ],
+      "id": "53fca61f-458e-4a25-baeb-6172ae4b1dc2",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## TODO : DONE\n### Complete the email prompt.",
+        "height": 80,
+        "width": 290,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1744,
+        1312
+      ],
+      "id": "f252392a-e1db-473b-85de-8db0b5f516a3",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## TODO : DONE\n### submit form",
+        "height": 80,
+        "width": 290,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        592,
+        480
+      ],
+      "id": "6de4f214-588e-4ec8-a79f-9049e5a0c817",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "amount": 20
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        768,
+        992
+      ],
+      "id": "1b140def-e004-4eb9-84ee-b0410be15464",
+      "name": "Wait",
+      "webhookId": "ce1f3b7d-8376-47c7-9a1d-f7cb5aa75197"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        752,
+        1408
+      ],
+      "id": "96ba64f9-5a8d-4f95-a071-322382c089b4",
+      "name": "Wait1",
+      "webhookId": "ce1f3b7d-8376-47c7-9a1d-f7cb5aa75197"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini-2025-04-14",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI-2025-04-14"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You will receive partial or unstructured information about a website. Your task is to write a complete and structured **System Prompt** for a GPT-based voice assistant that will help users interact with that website.\n\nSome fields may be missing or empty — when this happens:\n\n- Try to **infer missing details** using the other data (e.g. infer key links from the HTML or text content).\n- If inference is not possible, mark the section as \"Not specified\" and do NOT make up information.\n\nYour final output must be clearly structured and include these labeled sections:\n\n---\n\nWebsite Overview  \nKey Features and Sections  \nImportant Notes or Instructions  \nNotable Links  \nAnticipated User Questions (Please return all questions and answers as a single string variable called Anticipated User Questions ، No nested objects, no arrays, just one single variable holding the entire formatted Q&A text.\n\n) \nAssistant Behavior Guide  \n\nHere is the input data:\n\n**Title**: {{ $json.extractedContent.title }}\n**URL**: {{ $json.websiteUrl }} \n**Description**:  {{ $json.extractedContent.description }}\n**Purpose / Topics**:   \n**Target Audience**:   \n**Key Pages / Links**:   \n**Raw HTML or Text Content**: {{ $json.extractedContent.rawTextSample }}\n\nUse this data to build the best possible System Prompt, making smart use of what’s available.\n",
+              "role": "system"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        2272,
+        624
+      ],
+      "id": "5937c101-7282-4473-a13e-93a192b6ae1f",
+      "name": "OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "2mSYKMa6HXh0jmfd",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vapi.ai/assistant",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.businessName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() }}_demo_agent\",\n  \"voice\": {\n    \"provider\": \"openai\",\n    \"voiceId\": \"alloy\"\n  },\n  \"model\": {\n    \"provider\": \"openai\",\n    \"model\": \"gpt-4.1-nano\",\n    \"messages\": [\n      {\n        \"role\": \"system\",\n        \"content\": \"# {{ $json.businessName }} AI Assistant Knowledge Base /n ## Business Information - Business Name: {{ $json.businessName }} - Contact Person: {{ $json.leadName }} - Website: {{ $json.websiteUrl }} /n ## About : {{ $json.extractedContent.description }} /n ## AI Assistant Instructions You are an AI assistant for {{ $json.businessName }}. You're speaking with Ali to demonstrate how AI can help their business. Be helpful, professional, and showcase your knowledge about their business based on the information above. If asked about something not in your knowledge base, politely explain that you're a demo assistant and suggest they could have a fully customized AI with complete business knowledge.\"\n      }\n    ]\n  },\n  \"firstMessage\": \"Hello {{ $json.leadName }} This is your personalized AI assistant for aliyar. I'm excited to show you what I can do for your business!\"\n\n}\n",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "b615f636-4c43-4e50-b7c7-0fc8e32f4c2c",
+      "name": "Create Vapi Agent1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        32,
+        192
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "uQHr1O21nzhDLRIF",
+          "name": "vapi api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function escape(str) {\n  if (typeof str !== \"string\") {\n    try {\n      str = JSON.stringify(str);\n    } catch (e) {\n      str = String(str || \"\");\n    }\n  }\n  return str\n    .replace(/\\\\/g, '\\\\\\\\')\n    .replace(/\"/g, '\\\\\"')\n    .replace(/\\n/g, '\\\\n')\n    .replace(/\\r/g, '')\n    .replace(/\\t/g, '\\\\t');\n}\n\nreturn items.map(item => {\n  const data = item.json.message.content;\n\n  const content = `\nYou are a voice assistant for my website and can answer any question asked from my website.\nThe general information you need to know is as follows. Please follow the instructions below and carefully request the following information to ensure you are familiar with their answers.\n\nAssistant guide: ${escape(data[\"Assistant Behavior Guide\"])}\n\n\nImportant information:\n\nWebsite Overview: ${escape(data[\"Website Overview\"])}\n\nImportant Notes or Instructions: ${escape(data[\"Important Notes or Instructions\"])}\n\nNotable Links:\nHomepage: ${escape(data[\"Notable Links\"]?.Homepage || \"Not provided\")}\nBlog: ${escape(data[\"Notable Links\"]?.Blog || \"Not provided\")}\n\n\n`;\n\n  item.json.model = {\n    provider: \"openai\",\n    model: \"gpt-4.1-nano\",\n    messages: [\n      {\n        role: \"system\",\n        content: content\n      }\n    ]\n  };\n\n  return item;\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        352
+      ],
+      "id": "548bb5e2-fe69-4e24-a04b-b5bd1d41f32d",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "jsCode": "function escape(str) {\n  if (typeof str !== \"string\") {\n    try {\n      str = JSON.stringify(str);\n    } catch (e) {\n      str = String(str || \"\");\n    }\n  }\n\n  return str\n    .replace(/\\\\/g, \"\\\\\\\\\")\n    .replace(/\"/g, '\\\\\"')\n    .replace(/\\n/g, \"\\\\n\")\n    .replace(/\\r/g, \"\")\n    .replace(/\\t/g, \"\\\\t\");\n}\n\nreturn items.map(item => {\n  const contentData = item.json.message?.content ?? {};\n\n  const content = \n`You are a voice assistant for my website and can answer any question asked from my website.\nThe general information you need to know is as follows. Please follow the instructions below and carefully request the following information to ensure you are familiar with their answers.\n\nAssistant guide: ${escape(contentData[\"Assistant Behavior Guide\"])}\n\n\nImportant information:\n\nWebsite Overview: ${escape(contentData[\"Website Overview\"])}\n\nImportant Notes or Instructions: ${escape(contentData[\"Important Notes or Instructions\"])}\n\nNotable Links:\nHomepage: ${escape(contentData[\"Notable Links\"]?.Homepage || \"Not provided\")}\nBlog: ${escape(contentData[\"Notable Links\"]?.Blog || \"Not provided\")}\n\nFrequently asked questions:\n${Array.isArray(contentData[\"Anticipated User Questions\"]) ? contentData[\"Anticipated User Questions\"].map(q => \"- \" + escape(q)).join(\"\\\\n\") : \"Not provided\"}`;\n\n  // Set the model\n  item.json.model = {\n    provider: \"openai\",\n    model: \"gpt-4.1-nano\",\n    messages: [\n      {\n        role: \"system\",\n        content: content\n      }\n    ]\n  };\n\n  return item;\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        272
+      ],
+      "id": "828589c4-2724-4563-87b4-102daebc8aa8",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "content": "# TODO : DONE\n## crate a promt for ajent",
+        "height": 120,
+        "width": 290,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2240,
+        480
+      ],
+      "id": "385d6ff2-3215-4374-b402-ada1bfce3651",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## stof things dont delete it !!!",
+        "height": 80,
+        "width": 210
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        272
+      ],
+      "id": "504c08b6-2440-4d30-ba15-0b563709c43f",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "form",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        688,
+        608
+      ],
+      "id": "1c5d0e3a-1102-4f85-94c8-2d665a9d56be",
+      "name": "Webhook",
+      "webhookId": "104e01f1-e4d6-4bc3-a64f-a3ef8f1c72a3"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini-2025-04-14",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI-2025-04-14"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You will receive partial or unstructured information about a website. Your task is to write a complete and structured **System Prompt** for a GPT-based voice assistant that will help users interact with that website.\n\nSome fields may be missing or empty — when this happens:\n\n- Try to **infer missing details** using the other data (e.g. infer key links from the HTML or text content).\n- If inference is not possible, mark the section as \"Not specified\" and do NOT make up information.\n\nYour final output must be clearly structured and include these labeled sections:\n\n---\n\nWebsite Overview  \nKey Features and Sections  \nImportant Notes or Instructions  \nNotable Links  \nAnticipated User Questions and answer \nAssistant Behavior Guide  \n\nHere is the input data:\n\n**Title**: {{ $json.extractedContent.title }}\n**URL**: {{ $json.websiteUrl }} \n**Description**:  {{ $json.extractedContent.description }}\n**Purpose / Topics**:   \n**Target Audience**:   \n**Key Pages / Links**:   \n**Raw HTML or Text Content**: {{ $json.extractedContent.rawTextSample }}\n\nUse this data to build the best possible System Prompt, making smart use of what’s available.\n",
+              "role": "system"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a01dcbe1-e70c-462e-9c7b-82282942790b",
+      "name": "OpenAI1",
+      "credentials": {
+        "openAiApi": {
+          "id": "2mSYKMa6HXh0jmfd",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vapi.ai/assistant",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $('Merge KB Branches').item.json.businessName }}_demo_agent\",\n  \"voice\": {\n    \"provider\": \"openai\",\n    \"voiceId\": \"alloy\"\n  },\n  \"model\": {\n    \"provider\": \"openai\",\n    \"model\": \"gpt-4.1-nano\",\n    \"messages\": [\n      {\n        \"role\": \"system\",\n        \"content\": \"You are a voice assistant for my website and can answer any question asked from my website,The general information you need to know is as follows, Please follow the instructions below and carefully request the following information to ensure you are familiar with their answers.\\n\\n Assistant guide :{{$json.message.content['Assistant Behavior Guide'] }}\\n\\n Important information :\\n\\n Website Overview :{{$json.message.content['Website Overview'] }}\\n\\n Important Notes or Instructions : {{ $json.message.content['Important Notes or Instructions'] }}\\n\\n Notable Links : Homepage : {{ $json.message.content['Notable Links'].Homepage }}\\n\\n Blog : {{ $json.message.content['Notable Links'].Blog }}\\n\\n Frequently asked questions : {{ $json.message.content['Anticipated User Questions'] }}\"\n      }\n    ]\n  },\n  \"firstMessage\": \"Hello {{ $('Merge KB Branches').item.json.leadName }} This is your personalized AI assistant for aliyar. I'm excited to show you what I can do for your business!\"\n\n}\n",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "9c849091-2406-4c7a-92bf-27d9af48673b",
+      "name": "Create Vapi Agent2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        432,
+        48
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "uQHr1O21nzhDLRIF",
+          "name": "vapi api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appvwXvqk0JsPdOGo",
+          "mode": "list",
+          "cachedResultName": "order",
+          "cachedResultUrl": "https://airtable.com/appvwXvqk0JsPdOGo"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblpml2hforapYcwi",
+          "mode": "list",
+          "cachedResultName": "crate ai",
+          "cachedResultUrl": "https://airtable.com/appvwXvqk0JsPdOGo/tblpml2hforapYcwi"
+        },
+        "filterByFormula": "{Status} = \"In progress\"",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1104,
+        992
+      ],
+      "id": "03ba0846-bddb-44ae-86d5-e49edd7289e5",
+      "name": "Search records",
+      "alwaysOutputData": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "SM6eYTEz6wxWNVdf",
+          "name": "Airtable Personal Access Token account H"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appvwXvqk0JsPdOGo",
+          "mode": "list",
+          "cachedResultName": "order",
+          "cachedResultUrl": "https://airtable.com/appvwXvqk0JsPdOGo"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblpml2hforapYcwi",
+          "mode": "list",
+          "cachedResultName": "crate ai",
+          "cachedResultUrl": "https://airtable.com/appvwXvqk0JsPdOGo/tblpml2hforapYcwi"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Name": "={{ $('Merge KB Branches').item.json.leadName }}",
+            "Email": "={{ $('Merge KB Branches').item.json.email }}",
+            "Phone number": "={{ $('Merge KB Branches').item.json.phoneNumber }}",
+            "Website": "={{ $('Merge KB Branches').item.json.websiteUrl }}",
+            "Status": "In progress",
+            "Date": "={{ $json.createdAt }}",
+            "Assistants name": "={{ $json.name }}",
+            "Assistants id": "={{ $json.id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Phone number",
+              "displayName": "Phone number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "In progress",
+                  "value": "In progress"
+                },
+                {
+                  "name": "Done",
+                  "value": "Done"
+                },
+                {
+                  "name": "called",
+                  "value": "called"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Assistants name",
+              "displayName": "Assistants name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Assistants id",
+              "displayName": "Assistants id",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        2992,
+        688
+      ],
+      "id": "a5254513-184a-446e-922d-a215ea3dd6e0",
+      "name": "Create a record",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "SM6eYTEz6wxWNVdf",
+          "name": "Airtable Personal Access Token account H"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appvwXvqk0JsPdOGo",
+          "mode": "list",
+          "cachedResultName": "order",
+          "cachedResultUrl": "https://airtable.com/appvwXvqk0JsPdOGo"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblpml2hforapYcwi",
+          "mode": "list",
+          "cachedResultName": "crate ai",
+          "cachedResultUrl": "https://airtable.com/appvwXvqk0JsPdOGo/tblpml2hforapYcwi"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Status": "called",
+            "id": "={{ $('Search records').item.json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Phone number",
+              "displayName": "Phone number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "In progress",
+                  "value": "In progress"
+                },
+                {
+                  "name": "Done",
+                  "value": "Done"
+                },
+                {
+                  "name": "called",
+                  "value": "called"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "First message",
+              "displayName": "First message",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1984,
+        1104
+      ],
+      "id": "8b519790-1177-4fe1-8bf8-1d2996cec6e4",
+      "name": "Update record",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "SM6eYTEz6wxWNVdf",
+          "name": "Airtable Personal Access Token account H"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appvwXvqk0JsPdOGo",
+          "mode": "list",
+          "cachedResultName": "order",
+          "cachedResultUrl": "https://airtable.com/appvwXvqk0JsPdOGo"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblpml2hforapYcwi",
+          "mode": "list",
+          "cachedResultName": "crate ai",
+          "cachedResultUrl": "https://airtable.com/appvwXvqk0JsPdOGo/tblpml2hforapYcwi"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Status": "Done",
+            "id": "={{ $('Search records1').item.json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Phone number",
+              "displayName": "Phone number",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "In progress",
+                  "value": "In progress"
+                },
+                {
+                  "name": "Done",
+                  "value": "Done"
+                },
+                {
+                  "name": "called",
+                  "value": "called"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "Website",
+              "displayName": "Website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Assistants name",
+              "displayName": "Assistants name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Assistants id",
+              "displayName": "Assistants id",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        2128,
+        1344
+      ],
+      "id": "3b21cdf8-b1d5-4ab4-8ace-c1af4e305512",
+      "name": "Update record1",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "SM6eYTEz6wxWNVdf",
+          "name": "Airtable Personal Access Token account H"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appvwXvqk0JsPdOGo",
+          "mode": "list",
+          "cachedResultName": "order",
+          "cachedResultUrl": "https://airtable.com/appvwXvqk0JsPdOGo"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblpml2hforapYcwi",
+          "mode": "list",
+          "cachedResultName": "crate ai",
+          "cachedResultUrl": "https://airtable.com/appvwXvqk0JsPdOGo/tblpml2hforapYcwi"
+        },
+        "filterByFormula": "{Status} = \"called\"",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1072,
+        1408
+      ],
+      "id": "4a4e2eac-d86d-4c58-886e-7c9a725ac3f2",
+      "name": "Search records1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "SM6eYTEz6wxWNVdf",
+          "name": "Airtable Personal Access Token account H"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.Email }}",
+        "subject": "ai follow up team",
+        "emailType": "text",
+        "message": "=Hi {{ $('Search records1').item.json.Name }},\n\nThank you for choosing us — we truly appreciate your trust.\n\nWe’re excited to let you know that your voice assistant has been successfully registered!\n\n🛠️ **Assistant Name : {{ $json['Assistants name'] }}\n🆔 **Assistant ID :   {{ $json['Assistants id'] }}\n📅 **Registration Date : {{ $json.Date }}\n\nIf you have any questions, run into any issues, or just want to explore more features, feel free to reach out — we’re here to help.\n\nOnce again, thank you for choosing us. We’re thrilled to be part of your journey.\n\nBest regards,  \n  \nSupport Contact",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1600,
+        1344
+      ],
+      "id": "dd9120b4-8931-4df2-8f28-059cf6da8b1e",
+      "name": "Send a message",
+      "webhookId": "38f182e3-3189-494a-be35-5f7d32b462c8",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "pTqQNTQAOj9nEPYO",
+          "name": "assistans-H"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Validate & Format Data": {
+      "main": [
+        [
+          {
+            "node": "Scrape Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Website": {
+      "main": [
+        [
+          {
+            "node": "Extract Website Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Website Content": {
+      "main": [
+        [
+          {
+            "node": "Check Scraping Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Scraping Success": {
+      "main": [
+        [
+          {
+            "node": "Create KB from Website",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Generic KB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create KB from Website": {
+      "main": [
+        [
+          {
+            "node": "Merge KB Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Generic KB": {
+      "main": [
+        [
+          {
+            "node": "Merge KB Branches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge KB Branches": {
+      "main": [
+        [
+          {
+            "node": "OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Vapi Agent": {
+      "main": [
+        [
+          {
+            "node": "Create a record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initiate Vapi Call": {
+      "main": [
+        [
+          {
+            "node": "Update record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Search records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Initiate Vapi Call",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Search records1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Search records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "Search records1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Create Vapi Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate & Format Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search records": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a record": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update record": {
+      "main": [
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search records1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Update record1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "TN12aMf1d7rSN2nu"
+  },
+  "versionId": "61c1af12-59b6-4d00-9b99-7af0bd644a9d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8f20c1105cea384f9a027f7fbe35cbda1d1be3d35bbb8375794cc640ee7083ac"
+  },
+  "id": "vrHzTgqdH1rsr7qq",
+  "tags": [
+    {
+      "createdAt": "2025-07-05T11:14:28.540Z",
+      "updatedAt": "2025-07-05T11:14:28.540Z",
+      "id": "nXkPIfE502bOKwDm",
+      "name": "ai-demo"
+    },
+    {
+      "createdAt": "2025-07-05T11:14:28.552Z",
+      "updatedAt": "2025-07-05T11:14:28.552Z",
+      "id": "CRDXFw5bF0ecCofJ",
+      "name": "vapi-integration"
+    },
+    {
+      "createdAt": "2025-07-05T11:14:28.545Z",
+      "updatedAt": "2025-07-05T11:14:28.545Z",
+      "id": "DQ11pDkmNQnpcLvy",
+      "name": "lead-automation"
+    }
+  ]
+}
